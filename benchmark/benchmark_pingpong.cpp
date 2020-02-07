@@ -42,7 +42,7 @@ size_t num_trials = 10000;
 
 #ifdef AL_HAS_MPI_CUDA
 
-void do_benchmark() {
+void do_benchmark(const bool one_directional) {
   cudaStream_t stream;
   cudaStreamCreate(&stream);
   typename Al::MPICUDABackend::comm_type comm(MPI_COMM_WORLD, stream);
@@ -60,10 +60,12 @@ void do_benchmark() {
       start_timer<Al::MPIBackend>(comm);
       if (comm.rank() == 0) {
         MPI_Send(host_sendbuf.data(), size, MPI_FLOAT, 1, 1, MPI_COMM_WORLD);
-        MPI_Recv(host_recvbuf.data(), size, MPI_FLOAT, 1, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        if(!one_directional)
+          MPI_Recv(host_recvbuf.data(), size, MPI_FLOAT, 1, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       } else if (comm.rank() == 1) {
         MPI_Recv(host_recvbuf.data(), size, MPI_FLOAT, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        MPI_Send(host_sendbuf.data(), size, MPI_FLOAT, 0, 1, MPI_COMM_WORLD);
+        if(!one_directional)
+          MPI_Send(host_sendbuf.data(), size, MPI_FLOAT, 0, 1, MPI_COMM_WORLD);
       }
       host_times.push_back(finish_timer<Al::MPIBackend>(comm) / 2);
       if (trial % 4 == 0) {
@@ -76,37 +78,45 @@ void do_benchmark() {
       start_timer<Al::MPICUDABackend>(comm);
       if (comm.rank() == 0) {
         Al::Send<Al::MPICUDABackend>(sendbuf.data(), size, 1, comm);
-        Al::Recv<Al::MPICUDABackend>(recvbuf.data(), size, 1, comm);
+        if(!one_directional)
+          Al::Recv<Al::MPICUDABackend>(recvbuf.data(), size, 1, comm);
       } else if (comm.rank() == 1) {
         Al::Recv<Al::MPICUDABackend>(recvbuf.data(), size, 0, comm);
-        Al::Send<Al::MPICUDABackend>(sendbuf.data(), size, 0, comm);
+        if(!one_directional)
+          Al::Send<Al::MPICUDABackend>(sendbuf.data(), size, 0, comm);
       }
       times.push_back(finish_timer<Al::MPICUDABackend>(comm) / 2);
     }
-    MPI_Barrier(MPI_COMM_WORLD);
-    for (size_t trial = 0; trial < num_trials; ++trial) {
-      gpu_wait(0.0001, stream);
-      start_timer<Al::MPICUDABackend>(comm);
-      if (comm.rank() == 0) {
-        Al::SendRecv<Al::MPICUDABackend>(
-          sendbuf.data(), size, 1, recvbuf.data(), size, 1, comm);
-      } else if (comm.rank() == 1) {
-        Al::SendRecv<Al::MPICUDABackend>(
-          sendbuf.data(), size, 0, recvbuf.data(), size, 0, comm);
+    if(!one_directional) {
+      MPI_Barrier(MPI_COMM_WORLD);
+      for (size_t trial = 0; trial < num_trials; ++trial) {
+        gpu_wait(0.0001, stream);
+        start_timer<Al::MPICUDABackend>(comm);
+        if (comm.rank() == 0) {
+          Al::SendRecv<Al::MPICUDABackend>(
+              sendbuf.data(), size, 1, recvbuf.data(), size, 1, comm);
+        } else if (comm.rank() == 1) {
+          Al::SendRecv<Al::MPICUDABackend>(
+              sendbuf.data(), size, 0, recvbuf.data(), size, 0, comm);
+        }
+        sendrecv_times.push_back(finish_timer<Al::MPICUDABackend>(comm) / 2);
       }
-      sendrecv_times.push_back(finish_timer<Al::MPICUDABackend>(comm) / 2);
     }
     times.erase(times.begin());
     host_times.erase(host_times.begin());
-    sendrecv_times.erase(sendrecv_times.begin());
+    if(!one_directional) {
+      sendrecv_times.erase(sendrecv_times.begin());
+    }
     if (comm.rank() == 0) {
       std::cout << "Rank 0:" << std::endl;
       std::cout << "host ";
       print_stats(host_times);
       std::cout << "mpicuda ";
       print_stats(times);
-      std::cout << "mpicuda SR ";
-      print_stats(times);
+      if(!one_directional) {
+        std::cout << "mpicuda SR ";
+        print_stats(times);
+      }
     }
     MPI_Barrier(MPI_COMM_WORLD);
     if (comm.rank() == 1) {
@@ -115,8 +125,10 @@ void do_benchmark() {
       print_stats(host_times);
       std::cout << "mpicuda ";
       print_stats(times);
-      std::cout << "mpicuda SR ";
-      print_stats(times);
+      if(!one_directional) {
+        std::cout << "mpicuda SR ";
+        print_stats(times);
+      }
     }
     MPI_Barrier(MPI_COMM_WORLD);
   }
@@ -129,7 +141,16 @@ int main(int argc, char** argv) {
 #ifdef AL_HAS_MPI_CUDA
   set_device();
   Al::Initialize(argc, argv);
-  do_benchmark();
+
+  bool one_directional = false;
+  if (argc == 2 && std::string(argv[1]) == "--one-directional") {
+    one_directional = true;
+  } else if(argc != 1) {
+    std::cerr << "usage: " << argv[0] << "[--one-directional]" << std::endl;
+    return -1;
+  }
+
+  do_benchmark(one_directional);
   Al::Finalize();
 #else
   (void) argc;

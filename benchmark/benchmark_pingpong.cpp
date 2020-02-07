@@ -142,12 +142,17 @@ int main(int argc, char** argv) {
   set_device();
   Al::Initialize(argc, argv);
 
+  // usage: argv[0] [start_size max_size num_trials] [--one-directional]
   bool one_directional = false;
-  if (argc == 2 && std::string(argv[1]) == "--one-directional") {
+  if (argc >= 1 && std::string(argv[argc-1]) == "--one-directional") {
     one_directional = true;
-  } else if(argc != 1) {
-    std::cerr << "usage: " << argv[0] << "[--one-directional]" << std::endl;
-    return -1;
+    std::cout << "One-directional enabled." << std::endl;
+  }
+  if(argc >= 4) {
+    start_size = std::atoi(argv[1]);
+    max_size = std::atoi(argv[2]);
+    num_trials = std::atoi(argv[3]);
+    std::cout << "num_trials: " << num_trials << std::endl;
   }
 
   do_benchmark(one_directional);

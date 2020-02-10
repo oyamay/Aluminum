@@ -42,10 +42,19 @@ size_t num_trials = 10000;
 
 #ifdef AL_HAS_MPI_CUDA
 
-void do_benchmark(const bool one_directional) {
+void do_benchmark(const bool one_directional, const bool set_gpu_rank) {
   cudaStream_t stream;
   cudaStreamCreate(&stream);
+
   typename Al::MPICUDABackend::comm_type comm(MPI_COMM_WORLD, stream);
+
+  if(set_gpu_rank) {
+    cudaSetDevice(comm.rank());
+    int device;
+    cudaGetDevice(&device);
+    std::cout << "Rank: " << " " << comm.rank() << ", GPU: " << device << std::endl;
+  }
+
   for (size_t size = start_size; size <= max_size; size *= 2) {
     if (comm.rank() == 0) std::cout << "Benchmarking size " << human_readable_size(size) << std::endl;
     std::vector<double> times, sendrecv_times, host_times;
@@ -142,20 +151,41 @@ int main(int argc, char** argv) {
   set_device();
   Al::Initialize(argc, argv);
 
-  // usage: argv[0] [start_size max_size num_trials] [--one-directional]
-  bool one_directional = false;
-  if (argc >= 1 && std::string(argv[argc-1]) == "--one-directional") {
+  // Return true if `args` contains `arg` and remove it.
+  const auto find_arg = [](std::vector<std::string> &args, const std::string arg) {
+                          bool ret = false;
+                          const auto i = std::find(args.begin(), args.end(), arg);
+                          if(i != args.end()){
+                            args.erase(i);
+                            ret = true;
+                          }
+                          return ret;
+                        };
+
+  bool one_directional = false, set_gpu_rank = false;
+  std::vector<std::string> args(argv, argv+argc);
+  if(find_arg(args, "--one-directional")){
     one_directional = true;
     std::cout << "One-directional enabled." << std::endl;
   }
-  if(argc >= 4) {
-    start_size = std::atoi(argv[1]);
-    max_size = std::atoi(argv[2]);
-    num_trials = std::atoi(argv[3]);
-    std::cout << "num_trials: " << num_trials << std::endl;
+  if(find_arg(args, "--set-gpu-rank")){
+    set_gpu_rank = true;
   }
 
-  do_benchmark(one_directional);
+  if(args.size() == 4) {
+    start_size = std::stoi(args[1]);
+    max_size = std::stoi(args[2]);
+    num_trials = std::stoi(args[3]);
+    std::cout << "num_trials: " << num_trials << std::endl;
+  } else if(args.size() != 1) {
+    std::cerr << args[0]
+              << " [start_size max_size num_trials]"
+              << " [--one-directional]"
+              << " [--set-gpu-rank]" << std::endl;
+    return -1;
+  }
+
+  do_benchmark(one_directional, set_gpu_rank);
   Al::Finalize();
 #else
   (void) argc;

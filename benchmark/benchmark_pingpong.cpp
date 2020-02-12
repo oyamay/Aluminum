@@ -65,6 +65,9 @@ void do_benchmark(const bool one_directional, const bool set_gpu_rank) {
     MPI_Barrier(MPI_COMM_WORLD);
     for (size_t trial = 0; trial < num_trials; ++trial) {
       // Launch a dummy kernel just to match what the GPU version does.
+      if(one_directional) {
+        MPI_Barrier(MPI_COMM_WORLD);
+      }
       gpu_wait(0.0001, stream);
       start_timer<Al::MPIBackend>(comm);
       if (comm.rank() == 0) {
@@ -83,6 +86,9 @@ void do_benchmark(const bool one_directional, const bool set_gpu_rank) {
     }
     MPI_Barrier(MPI_COMM_WORLD);
     for (size_t trial = 0; trial < num_trials; ++trial) {
+      if(one_directional) {
+        MPI_Barrier(MPI_COMM_WORLD);
+      }
       gpu_wait(0.0001, stream);
       start_timer<Al::MPICUDABackend>(comm);
       if (comm.rank() == 0) {

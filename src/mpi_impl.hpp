@@ -133,6 +133,11 @@ template <> inline MPI_Datatype TypeMap<unsigned long long int>() { return MPI_U
 template <> inline MPI_Datatype TypeMap<float>() { return MPI_FLOAT; }
 template <> inline MPI_Datatype TypeMap<double>() { return MPI_DOUBLE; }
 template <> inline MPI_Datatype TypeMap<long double>() { return MPI_LONG_DOUBLE; }
+template <> inline MPI_Datatype TypeMap<__half>() {
+  // FIXME: This does not work correctly for collectives with
+  // arithmetic operations (such as all-reduce).
+  return MPI_SHORT;
+}
 
 /** True if count elements can be sent by MPI. */
 inline bool check_count_fits_mpi(size_t count) {
@@ -1675,7 +1680,7 @@ class MPIBackend {
         throw_al_exception("Invalid algorithm for Allreduce");
     }
   }
-  
+
   template <typename T>
   static void Allreduce(T* recvbuf, size_t count,
                         ReductionOperator op, comm_type& comm,
